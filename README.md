@@ -34,7 +34,7 @@ When you run a Psiphon Conduit node, people from ANY country can connect. This t
 
 ### Option A: Download ZIP (Easiest)
 
-1. Click **[⬇️ Download ZIP](https://github.com/SamNet-dev/iran-conduit-firewall/archive/refs/heads/main.zip)**
+1. Click **[⬇️ Download ZIP](https://github.com/SamNet-dev/iran-conduit-firewall/archive/refs/heads/master.zip)**
 2. Extract the ZIP file
 3. Double-click **`RUN_AS_ADMIN.bat`** (auto-elevates to admin)
 
@@ -104,7 +104,7 @@ MIT License - Free to use and share.
 
 </div>
 
-1. Click **[⬇️ Download ZIP](https://github.com/SamNet-dev/iran-conduit-firewall/archive/refs/heads/main.zip)**
+1. Click **[⬇️ Download ZIP](https://github.com/SamNet-dev/iran-conduit-firewall/archive/refs/heads/master.zip)**
 
 <div dir="rtl">
 
