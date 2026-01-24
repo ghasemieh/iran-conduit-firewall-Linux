@@ -2,8 +2,6 @@
 # VPN Monitoring Dashboard - Deployment Script
 # For Ubuntu/Debian Linux
 
-set -e  # Exit on error
-
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║    VPN MONITORING DASHBOARD - DEPLOYMENT SCRIPT          ║"
 echo "╚══════════════════════════════════════════════════════════╝"
@@ -11,19 +9,52 @@ echo ""
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
-    echo "⚠️  This script should be run as root (sudo)"
-    echo "   Some steps may fail without root privileges"
-    read -p "Continue anyway? (y/n) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+    echo "🔐 This script requires root privileges"
+    echo "   Re-running with sudo..."
+    echo ""
+    exec sudo -E bash "$0" "$@"
 fi
+
+echo "✅ Running with root privileges"
+echo ""
 
 # Variables
 INSTALL_DIR="/opt/vpn-monitor"
 DB_PATH="$INSTALL_DIR/vpn_connections.db"
 GEOIP_DIR="/usr/share/GeoIP"
+
+# Get script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Verify required files exist
+echo "🔍 Checking for required files..."
+MISSING_FILES=0
+
+for file in "collector.py" "app.py" "requirements.txt"; do
+    if [ ! -f "$SCRIPT_DIR/$file" ]; then
+        echo "   ❌ Missing: $file"
+        MISSING_FILES=1
+    else
+        echo "   ✓ Found: $file"
+    fi
+done
+
+if [ ! -d "$SCRIPT_DIR/templates" ]; then
+    echo "   ❌ Missing: templates/ directory"
+    MISSING_FILES=1
+else
+    echo "   ✓ Found: templates/"
+fi
+
+if [ $MISSING_FILES -eq 1 ]; then
+    echo ""
+    echo "❌ ERROR: Missing required files!"
+    echo "   Make sure you're running this script from the dashboard directory"
+    echo "   Current directory: $SCRIPT_DIR"
+    exit 1
+fi
+
+echo ""
 
 echo "📦 Step 1: Installing system dependencies..."
 apt update
@@ -32,18 +63,47 @@ apt install -y python3 python3-pip python3-venv \
     geoipupdate
 
 echo ""
-echo "📁 Step 2: Creating installation directory..."
+echo "📁 Step 2: Preparing installation directory..."
+# Create installation directory
 mkdir -p "$INSTALL_DIR"
-cd "$INSTALL_DIR"
 
-# Copy files
+# Copy files to installation directory
 echo "📋 Copying application files..."
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cp "$SCRIPT_DIR/collector.py" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/app.py" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
-cp -r "$SCRIPT_DIR/templates" "$INSTALL_DIR/" 2>/dev/null || true
-cp -r "$SCRIPT_DIR/static" "$INSTALL_DIR/" 2>/dev/null || true
+if [ -f "$SCRIPT_DIR/collector.py" ]; then
+    cp "$SCRIPT_DIR/collector.py" "$INSTALL_DIR/"
+    echo "   ✓ collector.py"
+else
+    echo "   ⚠️  collector.py not found in $SCRIPT_DIR"
+fi
+
+if [ -f "$SCRIPT_DIR/app.py" ]; then
+    cp "$SCRIPT_DIR/app.py" "$INSTALL_DIR/"
+    echo "   ✓ app.py"
+else
+    echo "   ⚠️  app.py not found in $SCRIPT_DIR"
+fi
+
+if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
+    cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
+    echo "   ✓ requirements.txt"
+else
+    echo "   ⚠️  requirements.txt not found in $SCRIPT_DIR"
+fi
+
+if [ -d "$SCRIPT_DIR/templates" ]; then
+    cp -r "$SCRIPT_DIR/templates" "$INSTALL_DIR/"
+    echo "   ✓ templates/"
+else
+    echo "   ⚠️  templates/ directory not found in $SCRIPT_DIR"
+fi
+
+if [ -d "$SCRIPT_DIR/static" ]; then
+    cp -r "$SCRIPT_DIR/static" "$INSTALL_DIR/"
+    echo "   ✓ static/"
+fi
+
+# Change to installation directory
+cd "$INSTALL_DIR"
 
 echo ""
 echo "🐍 Step 3: Setting up Python virtual environment..."
@@ -56,36 +116,48 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 echo ""
-echo "�� Step 5: Setting up GeoIP..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "You need a MaxMind account to download GeoIP databases."
-echo "Sign up for FREE at: https://www.maxmind.com/en/geolite2/signup"
+echo "Step 5: GeoIP Setup (Optional)"
+echo "========================================="
+echo "Geographic features require MaxMind GeoIP databases (FREE)"
 echo ""
-read -p "Do you have a MaxMind account? (y/n) " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo ""
-    read -p "Enter your MaxMind Account ID: " ACCOUNT_ID
-    read -p "Enter your MaxMind License Key: " LICENSE_KEY
 
-    # Configure GeoIP
-    cat > /etc/GeoIP.conf <<EOF
+# Check if GeoIP database already exists
+if [ -f "$GEOIP_DIR/GeoLite2-City.mmdb" ]; then
+    echo "   GeoIP database already exists - skipping"
+else
+    echo "To enable geographic features:"
+    echo "  1. Sign up at: https://www.maxmind.com/en/geolite2/signup"
+    echo "  2. Edit /etc/GeoIP.conf with your credentials"
+    echo "  3. Run: sudo geoipupdate"
+    echo ""
+    read -p "Do you want to configure GeoIP now? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo ""
+        read -p "MaxMind Account ID: " ACCOUNT_ID
+        read -p "MaxMind License Key: " LICENSE_KEY
+
+        if [ -n "$ACCOUNT_ID" ] && [ -n "$LICENSE_KEY" ]; then
+            cat > /etc/GeoIP.conf <<EOF
 # GeoIP Configuration
 AccountID $ACCOUNT_ID
 LicenseKey $LICENSE_KEY
 EditionIDs GeoLite2-City GeoLite2-Country
 DatabaseDirectory $GEOIP_DIR
 EOF
-
-    echo "📥 Downloading GeoIP databases..."
-    mkdir -p "$GEOIP_DIR"
-    geoipupdate
-
-    echo "✅ GeoIP databases installed"
-else
-    echo "⚠️  Skipping GeoIP setup"
-    echo "   Geographic features will be limited without GeoIP"
-    echo "   You can configure it later in /etc/GeoIP.conf"
+            echo "Downloading GeoIP databases..."
+            mkdir -p "$GEOIP_DIR"
+            if geoipupdate; then
+                echo "   GeoIP databases installed successfully"
+            else
+                echo "   Warning: GeoIP download failed"
+            fi
+        else
+            echo "   Skipping GeoIP (credentials not provided)"
+        fi
+    else
+        echo "   Skipping GeoIP setup (you can configure it later)"
+    fi
 fi
 
 echo ""
@@ -140,43 +212,40 @@ echo "⏳ Waiting for services to start..."
 sleep 3
 
 echo ""
-echo "📊 Step 9: Checking service status..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-systemctl status vpn-collector --no-pager -l || true
-echo ""
-systemctl status vpn-dashboard --no-pager -l || true
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Step 9: Verifying services..."
+echo "========================================="
+if systemctl is-active --quiet vpn-collector; then
+    echo "   Collector:  RUNNING"
+else
+    echo "   Collector:  FAILED (check logs: journalctl -u vpn-collector)"
+fi
+
+if systemctl is-active --quiet vpn-dashboard; then
+    echo "   Dashboard:  RUNNING"
+else
+    echo "   Dashboard:  FAILED (check logs: journalctl -u vpn-dashboard)"
+fi
 
 echo ""
-echo "╔══════════════════════════════════════════════════════════╗"
-echo "║                 ✅ DEPLOYMENT COMPLETE!                   ║"
-echo "╚══════════════════════════════════════════════════════════╝"
+echo "========================================="
+echo "        DEPLOYMENT COMPLETE!"
+echo "========================================="
 echo ""
-echo "📌 Installation directory: $INSTALL_DIR"
-echo "📌 Database: $DB_PATH"
-echo ""
-echo "🌐 Access the dashboard at:"
+echo "Access the dashboard:"
 echo "   http://$(hostname -I | awk '{print $1}'):8080"
-echo "   or"
 echo "   http://localhost:8080"
 echo ""
-echo "🔐 Default credentials:"
+echo "Login credentials:"
 echo "   Username: admin"
 echo "   Password: admin123"
 echo ""
-echo "⚠️  IMPORTANT NEXT STEPS:"
-echo "   1. Change the default password!"
-echo "   2. Set environment variables for security:"
-echo "      export ADMIN_USERNAME='your_username'"
-echo "      export ADMIN_PASSWORD='your_password'"
-echo "   3. Configure firewall to allow port 8080"
-echo "   4. For production, use HTTPS with Nginx reverse proxy"
+echo "IMPORTANT: Change the default password!"
+echo "   export ADMIN_USERNAME='your_username'"
+echo "   export ADMIN_PASSWORD='your_password'"
+echo "   sudo systemctl restart vpn-dashboard"
 echo ""
-echo "📝 Useful commands:"
-echo "   • Check collector logs:  sudo journalctl -u vpn-collector -f"
-echo "   • Check dashboard logs:  sudo journalctl -u vpn-dashboard -f"
-echo "   • Restart collector:     sudo systemctl restart vpn-collector"
-echo "   • Restart dashboard:     sudo systemctl restart vpn-dashboard"
-echo "   • Stop services:         sudo systemctl stop vpn-collector vpn-dashboard"
+echo "Useful commands:"
+echo "   View logs:     sudo journalctl -u vpn-dashboard -f"
+echo "   Restart:       sudo systemctl restart vpn-dashboard"
+echo "   Stop:          sudo systemctl stop vpn-dashboard"
 echo ""
-echo "✨ Enjoy your VPN monitoring dashboard!"
