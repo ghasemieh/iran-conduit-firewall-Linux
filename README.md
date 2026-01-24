@@ -17,9 +17,9 @@ When you run a Psiphon Conduit node, people from ANY country can connect. This t
 ## ✨ Features
 
 - ✅ **Only affects Conduit** - Your PC works normally
-- ✅ **2000+ Iran IP ranges** - Updated from authoritative sources
+- ✅ **2000+ Iran IP ranges** - Updated from authoritative sources  
 - ✅ **DNS whitelisted** - Google, Cloudflare, Shekan DNS
-- ✅ **Easy toggle** - Enable/disable with one click
+- ✅ **Easy toggle** - Enable/disable anytime
 - ✅ **Auto-detects Conduit** - Works with Windows Store version
 
 ## 📋 Requirements
@@ -29,26 +29,28 @@ When you run a Psiphon Conduit node, people from ANY country can connect. This t
 | **OS** | Windows 10/11 |
 | **Python** | 3.6+ ([Download](https://python.org)) |
 | **Conduit** | [Psiphon Conduit](https://conduit.psiphon.ca) |
-| **Permissions** | Run as Administrator |
 
-## 🚀 Quick Start
+## 🚀 Quick Start (2 Options)
 
-### 1. Download
-```
+### Option A: Download ZIP (Easiest)
+
+1. Click **[⬇️ Download ZIP](https://github.com/SamNet-dev/iran-conduit-firewall/archive/refs/heads/main.zip)**
+2. Extract the ZIP file
+3. Double-click **`RUN_AS_ADMIN.bat`** (auto-elevates to admin)
+
+### Option B: Git Clone
+
+```powershell
 git clone https://github.com/SamNet-dev/iran-conduit-firewall.git
 cd iran-conduit-firewall
 ```
 
-### 2. Run as Administrator
+Then double-click **`RUN_AS_ADMIN.bat`**
+
+Or run manually as Administrator:
 ```powershell
-# Right-click PowerShell → Run as Administrator
 python iran_firewall.py
 ```
-
-### 3. Enable Iran-Only Mode
-- Choose option `1` from the menu
-- Wait for IP ranges to download
-- Done! Only Iranian users can connect
 
 ## 📖 Usage
 
@@ -56,22 +58,18 @@ python iran_firewall.py
 MAIN MENU
   1. 🟢 Enable Iran-only mode    ← Block non-Iran IPs
   2. 🔴 Disable Iran-only mode   ← Allow all countries
-  3. 📊 Check status             ← See current state
-  4. 🚀 Conduit management       ← Start/stop Conduit
-  5. ❓ Help
+  3. 📊 Check status
+  4. 🚀 Conduit management
   0. 🚪 Exit
 ```
 
 ## ❓ FAQ
 
 **Q: Does this affect my PC?**  
-A: No! Only Psiphon Conduit is affected. Your browsing, apps, and everything else works normally.
+A: No! Only Psiphon Conduit is affected.
 
 **Q: Do rules stay after I close the script?**  
-A: Yes, firewall rules persist until you run option 2 (Disable).
-
-**Q: No connections after enabling?**  
-A: Normal! It may take time for Iranian users to be routed to your node.
+A: Yes, until you run option 2 (Disable).
 
 ## 📜 License
 
@@ -83,17 +81,14 @@ MIT License - Free to use and share.
 
 # راهنمای فارسی
 
-**پهنای باند Psiphon Conduit خود را برای کاربران ایرانی در زمان قطعی اینترنت حداکثر کنید.**
-
-وقتی یک نود Psiphon Conduit اجرا می‌کنید، افراد از هر کشوری می‌توانند متصل شوند. این ابزار IP های غیر ایرانی را مسدود می‌کند تا فقط ایرانی‌ها بتوانند از پهنای باند شما استفاده کنند.
+**پهنای باند Psiphon Conduit خود را برای کاربران ایرانی حداکثر کنید.**
 
 ## ✨ ویژگی‌ها
 
 - ✅ **فقط Conduit را تحت تأثیر قرار می‌دهد** - کامپیوتر شما عادی کار می‌کند
-- ✅ **بیش از ۲۰۰۰ رنج IP ایران** - به‌روز از منابع معتبر
+- ✅ **بیش از ۲۰۰۰ رنج IP ایران**
 - ✅ **DNS های مجاز** - گوگل، کلودفلر، شکن
-- ✅ **فعال/غیرفعال آسان** - با یک کلیک
-- ✅ **تشخیص خودکار Conduit** - با نسخه Windows Store کار می‌کند
+- ✅ **فعال/غیرفعال آسان**
 
 ## 📋 پیش‌نیازها
 
@@ -102,35 +97,32 @@ MIT License - Free to use and share.
 | **سیستم عامل** | ویندوز ۱۰/۱۱ |
 | **پایتون** | نسخه ۳.۶+ ([دانلود](https://python.org)) |
 | **Conduit** | [Psiphon Conduit](https://conduit.psiphon.ca) |
-| **دسترسی** | اجرا به عنوان Administrator |
 
-## 🚀 شروع سریع
+## 🚀 شروع سریع (۲ روش)
 
-### ۱. دانلود
+### روش A: دانلود ZIP (آسان‌ترین)
+
 </div>
 
-```
+1. Click **[⬇️ Download ZIP](https://github.com/SamNet-dev/iran-conduit-firewall/archive/refs/heads/main.zip)**
+
+<div dir="rtl">
+
+2. فایل ZIP را استخراج کنید
+3. روی **`RUN_AS_ADMIN.bat`** دوبار کلیک کنید
+
+### روش B: Git Clone
+
+</div>
+
+```powershell
 git clone https://github.com/SamNet-dev/iran-conduit-firewall.git
 cd iran-conduit-firewall
 ```
 
 <div dir="rtl">
 
-### ۲. اجرا به عنوان Administrator
-
-</div>
-
-```powershell
-# کلیک راست روی PowerShell → Run as Administrator
-python iran_firewall.py
-```
-
-<div dir="rtl">
-
-### ۳. فعال کردن حالت فقط ایران
-- گزینه `1` را از منو انتخاب کنید
-- منتظر دانلود رنج‌های IP بمانید
-- تمام! فقط کاربران ایرانی می‌توانند متصل شوند
+سپس روی **`RUN_AS_ADMIN.bat`** دوبار کلیک کنید
 
 ## 📖 استفاده
 
@@ -140,9 +132,8 @@ python iran_firewall.py
 MAIN MENU
   1. 🟢 Enable Iran-only mode    ← مسدود کردن IP های غیر ایرانی
   2. 🔴 Disable Iran-only mode   ← اجازه به همه کشورها
-  3. 📊 Check status             ← مشاهده وضعیت فعلی
-  4. 🚀 Conduit management       ← شروع/توقف Conduit
-  5. ❓ Help
+  3. 📊 Check status
+  4. 🚀 Conduit management
   0. 🚪 Exit
 ```
 
@@ -150,14 +141,11 @@ MAIN MENU
 
 ## ❓ سؤالات متداول
 
-**س: آیا این روی کامپیوتر من تأثیر می‌گذارد؟**  
-ج: خیر! فقط Psiphon Conduit تحت تأثیر قرار می‌گیرد. مرورگر، برنامه‌ها و همه چیز عادی کار می‌کند.
+**س: آیا روی کامپیوتر من تأثیر می‌گذارد؟**  
+ج: خیر! فقط Psiphon Conduit تحت تأثیر قرار می‌گیرد.
 
-**س: آیا قوانین بعد از بستن اسکریپت باقی می‌مانند؟**  
-ج: بله، قوانین فایروال تا زمانی که گزینه ۲ (غیرفعال) را اجرا نکنید باقی می‌مانند.
-
-**س: بعد از فعال کردن هیچ اتصالی ندارم؟**  
-ج: عادی است! ممکن است زمان ببرد تا کاربران ایرانی به نود شما هدایت شوند.
+**س: قوانین بعد از بستن اسکریپت باقی می‌مانند؟**  
+ج: بله، تا زمانی که گزینه ۲ را اجرا نکنید.
 
 ## 📜 مجوز
 

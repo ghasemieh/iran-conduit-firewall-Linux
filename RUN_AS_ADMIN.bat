@@ -1,30 +1,16 @@
 @echo off
-:: ═══════════════════════════════════════════════════════════════
-::  IRAN-ONLY FIREWALL FOR PSIPHON CONDUIT
-::  Run this file as Administrator!
-:: ═══════════════════════════════════════════════════════════════
+:: Iran-Only Firewall for Psiphon Conduit
+:: This script auto-elevates to Administrator
 
-echo.
-echo   Launching Iran-Only Firewall...
-echo.
-
-cd /d "%~dp0"
-
-:: Check if Python is installed
-python --version >nul 2>&1
-if errorlevel 1 (
-    echo   ERROR: Python is not installed!
-    echo.
-    echo   Please install Python from:
-    echo   https://www.python.org/downloads/
-    echo.
-    echo   Make sure to check "Add Python to PATH" during installation.
-    echo.
-    pause
-    exit /b 1
+:: Check if running as admin
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Requesting Administrator privileges...
+    powershell -Command "Start-Process '%~f0' -Verb RunAs"
+    exit /b
 )
 
-:: Run the script
+:: Now running as admin
+cd /d "%~dp0"
 python iran_firewall.py
-
 pause
