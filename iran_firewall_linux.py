@@ -233,6 +233,102 @@ def create_ipset(name, ips):
     return True
 
 
+def get_admin_ips():
+    """Get admin IPs to whitelist"""
+    config = load_config()
+    admin_ips = config.get('admin_ips', [])
+
+    if admin_ips:
+        print(f"\n🔐 Found {len(admin_ips)} admin IP(s) in config")
+        for ip in admin_ips:
+            print(f"   • {ip}")
+        print("\n   These IPs will have FULL ACCESS to all server services")
+        print("   (highest priority, bypasses VPN firewall)")
+
+    print("\n💡 You can add your current IP to always access web services")
+    add_ip = input("   Add admin IP now? (y/n): ").strip().lower()
+
+    if add_ip == 'y':
+        print("\n   Your current IP might be one of these:")
+        print("   (Check your SSH connection or use: curl ifconfig.me)")
+        new_ip = input("\n   Enter admin IP to whitelist (or press Enter to skip): ").strip()
+        if new_ip:
+            # Basic IP validation
+            parts = new_ip.split('.')
+            if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+                if new_ip not in admin_ips:
+                    admin_ips.append(new_ip)
+                    config['admin_ips'] = admin_ips
+                    save_config(config)
+                    print(f"   ✅ Added {new_ip} to admin whitelist")
+                else:
+                    print(f"   ℹ️  {new_ip} already in whitelist")
+            else:
+                print("   ⚠️  Invalid IP format")
+
+    return admin_ips
+
+
+def manage_admin_ips():
+    """Manage admin IP whitelist"""
+    print("\n" + "=" * 50)
+    print("🔐 ADMIN IP WHITELIST MANAGEMENT")
+    print("=" * 50 + "\n")
+
+    config = load_config()
+    admin_ips = config.get('admin_ips', [])
+
+    while True:
+        print("\nCurrent admin IPs:")
+        if admin_ips:
+            for i, ip in enumerate(admin_ips, 1):
+                print(f"   {i}. {ip}")
+        else:
+            print("   (none)")
+
+        print("\nOptions:")
+        print("   1. Add admin IP")
+        print("   2. Remove admin IP")
+        print("   0. Back to main menu")
+
+        choice = input("\n   Enter choice: ").strip()
+
+        if choice == "1":
+            new_ip = input("\n   Enter IP address to whitelist: ").strip()
+            # Basic validation
+            parts = new_ip.split('.')
+            if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+                if new_ip not in admin_ips:
+                    admin_ips.append(new_ip)
+                    config['admin_ips'] = admin_ips
+                    save_config(config)
+                    print(f"   ✅ Added {new_ip}")
+                else:
+                    print(f"   ℹ️  {new_ip} already exists")
+            else:
+                print("   ❌ Invalid IP format")
+
+        elif choice == "2":
+            if not admin_ips:
+                print("   No admin IPs to remove")
+                continue
+
+            try:
+                idx = int(input("\n   Enter number to remove: ").strip()) - 1
+                if 0 <= idx < len(admin_ips):
+                    removed = admin_ips.pop(idx)
+                    config['admin_ips'] = admin_ips
+                    save_config(config)
+                    print(f"   ✅ Removed {removed}")
+                else:
+                    print("   ❌ Invalid number")
+            except ValueError:
+                print("   ❌ Invalid input")
+
+        elif choice == "0":
+            break
+
+
 def enable_iran_only():
     """Enable Iran-only mode using iptables"""
     print("\n" + "=" * 50)
@@ -248,6 +344,9 @@ def enable_iran_only():
 
     # Detect VPN port (optional)
     vpn_port = detect_vpn_port()
+
+    # Get admin IPs for whitelisting
+    admin_ips = get_admin_ips()
 
     # Download Iran IPs
     iran_ips = download_iran_ips()
@@ -275,12 +374,27 @@ def enable_iran_only():
         input("   Press Enter to go back...")
         return False
 
+    # Create ipset for admin IPs if any exist
+    if admin_ips:
+        print("\n🔐 Creating IP set for admin whitelist...")
+        if not create_ipset(f"{RULE_PREFIX}_ADMIN", admin_ips):
+            print("   ⚠️  Warning: Failed to create admin ipset")
+            print("   Continuing without admin whitelist...")
+            admin_ips = []
+
     # Create custom chain
     print("\n🔗 Creating firewall chain...")
     run_cmd(f"iptables -N {RULE_PREFIX}", check=False)
 
     # Build iptables rules
     print("🔒 Building firewall rules...")
+
+    # HIGHEST PRIORITY: Allow admin IPs (FULL ACCESS - not just VPN)
+    if admin_ips:
+        print(f"   ✓ Adding admin IP whitelist (highest priority)")
+        # Admin IPs bypass ALL filtering - full server access
+        for admin_ip in admin_ips:
+            run_cmd(f"iptables -I INPUT 1 -s {admin_ip} -j ACCEPT", check=True)
 
     # Allow established connections
     run_cmd(f"iptables -A {RULE_PREFIX} -m state --state ESTABLISHED,RELATED -j ACCEPT", check=True)
@@ -314,9 +428,15 @@ def enable_iran_only():
         print(f"   🔌 VPN Port: {vpn_port}")
     print(f"   🇮🇷 Iran IPs: {len(iran_ips)} ranges allowed")
     print(f"   🌐 DNS servers: {len(DNS_SERVERS)} whitelisted")
+    if admin_ips:
+        print(f"   🔐 Admin IPs: {len(admin_ips)} whitelisted (full access)")
+        for ip in admin_ips:
+            print(f"      • {ip}")
 
     print("\n   ⚠️  YOUR SERVER IS NOT AFFECTED - ONLY VPN!")
-    print("   🇮🇷 Only Iranian users can connect now!")
+    print("   🇮🇷 Only Iranian users can connect to VPN now!")
+    if admin_ips:
+        print("   🔐 Admin IPs have FULL server access (web, SSH, everything)")
 
     # Save rules
     print("\n💾 Saving rules...")
@@ -333,13 +453,18 @@ def disable_iran_only(quiet=False):
     if not quiet:
         print("\n🔓 Disabling Iran-only mode...\n")
 
+    # Remove admin IP rules from INPUT chain
+    config = load_config()
+    admin_ips = config.get('admin_ips', [])
+    for admin_ip in admin_ips:
+        run_cmd(f"iptables -D INPUT -s {admin_ip} -j ACCEPT", check=False)
+
     # Remove iptables rules
     run_cmd(f"iptables -D INPUT -j {RULE_PREFIX}", check=False)
     run_cmd(f"iptables -F {RULE_PREFIX}", check=False)
     run_cmd(f"iptables -X {RULE_PREFIX}", check=False)
 
     # Remove rules by interface (cleanup any remaining)
-    config = load_config()
     vpn_iface = config.get('vpn_interface')
     if vpn_iface:
         run_cmd(f"iptables -D INPUT -i {vpn_iface} -j {RULE_PREFIX}", check=False)
@@ -347,6 +472,7 @@ def disable_iran_only(quiet=False):
     # Destroy ipsets
     run_cmd(f"ipset destroy {RULE_PREFIX}_IRAN", check=False)
     run_cmd(f"ipset destroy {RULE_PREFIX}_DNS", check=False)
+    run_cmd(f"ipset destroy {RULE_PREFIX}_ADMIN", check=False)
 
     if not quiet:
         print("✅ Iran-only mode DISABLED")
@@ -388,6 +514,15 @@ def show_status():
         else:
             print(f"   Status:    ⚪ Interface not found")
 
+    # Show admin IPs
+    admin_ips = config.get('admin_ips', [])
+    if admin_ips:
+        print(f"\n   🔐 Admin IP Whitelist:")
+        for ip in admin_ips:
+            print(f"      • {ip} (full server access)")
+    else:
+        print(f"\n   🔐 Admin IPs: None configured")
+
     # Show active connections
     print(f"\n   📊 Connection Statistics:")
     success, out, _ = run_cmd("ss -tunp | grep -c ESTAB")
@@ -409,6 +544,7 @@ def show_help():
 WHAT THIS DOES:
   • Blocks connections to your VPN from non-Iran IPs
   • Lets only Iranian users use your bandwidth
+  • Whitelists admin IPs for full server access (web, SSH, etc.)
   • Does NOT affect your server - only VPN traffic!
 
 HOW IT WORKS:
@@ -488,7 +624,8 @@ def main():
         print("  2. 🔴 Disable Iran-only mode")
         print("  3. 📊 Check status")
         print("  4. ⚙️  Configure VPN interface/port")
-        print("  5. ❓ Help")
+        print("  5. 🔐 Manage admin IP whitelist")
+        print("  6. ❓ Help")
         print("  0. 🚪 Exit")
         print("─" * 45)
 
@@ -506,6 +643,8 @@ def main():
             detect_vpn_port()
             input("\n   Configuration saved! Press Enter to continue...")
         elif choice == "5":
+            manage_admin_ips()
+        elif choice == "6":
             show_help()
         elif choice == "0":
             clear_screen()
@@ -513,7 +652,7 @@ def main():
             print("   Share this tool to help more people.\n")
             break
         else:
-            print("   Invalid choice. Enter 0-5.")
+            print("   Invalid choice. Enter 0-6.")
 
 
 if __name__ == "__main__":
