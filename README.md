@@ -1,8 +1,8 @@
-# 🇮🇷 Iran-Only Firewall for Psiphon Conduit
+#  Iran-Only Firewall for Psiphon Conduit
 
 <div dir="rtl">
 
-## [🇮🇷 فارسی](#راهنمای-فارسی) | [🇬🇧 English](#english-guide)
+## [ فارسی](#راهنمای-فارسی) | [🇬🇧 English](#english-guide)
 
 </div>
 
