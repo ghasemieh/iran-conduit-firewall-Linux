@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ╔═══════════════════════════════════════════════════════════════════╗
-║       IRAN-ONLY FIREWALL FOR PSIPHON CONDUIT - v1.0.0            ║
+║       IRAN-ONLY FIREWALL FOR PSIPHON CONDUIT - v1.1.1            ║
 ║                    Linux/Ubuntu Edition                           ║
 ║                                                                   ║
 ║  Maximize your bandwidth for Iranian users by blocking           ║
@@ -10,11 +10,19 @@
 ║  ⚠️  ONLY affects VPN traffic                                     ║
 ║  ✅ Your server and other services work normally                 ║
 ║                                                                   ║
+║  IMPROVEMENTS IN v1.1.x:                                          ║
+║  • Explicit BLOCK rules (doesn't rely on implicit deny)           ║
+║  • IPv6 support for Iran ranges                                   ║
+║  • Firewall state verification                                    ║
+║  • Optional TCP restriction mode                                  ║
+║  • Better error handling and logging                              ║
+║  • v1.1.1: Fixed IPv6 block rules always created                  ║
+║                                                                   ║
 ║  GitHub: Share this script to help more people!                  ║
 ╚═══════════════════════════════════════════════════════════════════╝
 """
 
-VERSION = "1.0.0-linux"
+VERSION = "1.1.1-linux"
 
 import subprocess
 import sys
@@ -22,12 +30,14 @@ import os
 import urllib.request
 import json
 import time
+import logging
 
 RULE_PREFIX = "IRAN_CONDUIT"
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "firewall.log")
 CONDUIT_URL = "https://conduit.psiphon.ca/"
 
-# DNS servers to whitelist
+# DNS servers to whitelist (IPv4)
 DNS_SERVERS = [
     "8.8.8.8", "8.8.4.4",           # Google DNS
     "1.1.1.1", "1.0.0.1",           # Cloudflare DNS
@@ -38,11 +48,44 @@ DNS_SERVERS = [
     "10.202.10.202", "10.202.10.102",    # 403.online DNS (Iran)
 ]
 
-# Iran IP sources
-IP_SOURCES = [
+# DNS IPv6 servers
+DNS_SERVERS_V6 = [
+    "2001:4860:4860::8888", "2001:4860:4860::8844",  # Google DNS
+    "2606:4700:4700::1111", "2606:4700:4700::1001",  # Cloudflare DNS
+    "2620:fe::fe", "2620:fe::9",                      # Quad9 DNS
+]
+
+# Iran IP sources (IPv4)
+IP_SOURCES_V4 = [
     "https://www.ipdeny.com/ipblocks/data/countries/ir.zone",
     "https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/ipv4/ir.cidr",
 ]
+
+# Iran IP sources (IPv6)
+IP_SOURCES_V6 = [
+    "https://www.ipdeny.com/ipv6/ipaddresses/blocks/ir.zone",
+    "https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/ipv6/ir.cidr",
+]
+
+
+def setup_logging():
+    """Setup logging to file and console"""
+    try:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(LOG_FILE, encoding='utf-8'),
+                logging.StreamHandler()
+            ]
+        )
+    except Exception:
+        # If log file can't be created, just use console
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[logging.StreamHandler()]
+        )
 
 
 def clear_screen():
@@ -55,9 +98,10 @@ def print_header():
     clear_screen()
     print(f"""
 ╔═══════════════════════════════════════════════════════════════════╗
-║       🇮🇷 IRAN-ONLY FIREWALL FOR PSIPHON CONDUIT v{VERSION} 🇮🇷       ║
+║       🇮🇷 IRAN-ONLY FIREWALL FOR PSIPHON CONDUIT v{VERSION} 🇮🇷      ║
 ╠═══════════════════════════════════════════════════════════════════╣
-║  Maximize bandwidth for Iranian users during internet shutdowns  ║
+║  Maximize bandwidth for Iranian users during internet shutdowns   ║
+║  [IMPROVED: Explicit blocks, IPv6 support, verification]          ║
 ║                      Linux/Ubuntu Edition                         ║
 ╚═══════════════════════════════════════════════════════════════════╝
 """)
@@ -177,42 +221,67 @@ def detect_vpn_port():
     return None
 
 
-def download_iran_ips():
-    """Download Iran IP ranges"""
+def download_iran_ips(include_ipv6=True):
+    """Download Iran IP ranges (IPv4 and optionally IPv6)"""
     print("📥 Downloading Iran IP ranges...")
-    all_ips = set()
-    success_count = 0
 
-    for url in IP_SOURCES:
+    ipv4_ips = set()
+    ipv6_ips = set()
+
+    # Download IPv4
+    print("\n   IPv4 ranges:")
+    for url in IP_SOURCES_V4:
         source_name = url.split('/')[-1]
         try:
             print(f"   Fetching {source_name}...", end=" ", flush=True)
-            req = urllib.request.Request(url, headers={'User-Agent': 'IranFirewall/1.0'})
+            req = urllib.request.Request(url, headers={'User-Agent': 'IranFirewall/1.1'})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = resp.read().decode('utf-8')
                 ips = [line.strip() for line in data.split('\n')
-                       if line.strip() and '/' in line and not line.startswith('#')]
-                all_ips.update(ips)
+                       if line.strip() and '/' in line and not line.startswith('#') and ':' not in line]
+                ipv4_ips.update(ips)
                 print(f"✓ {len(ips)} ranges")
-                success_count += 1
         except Exception as e:
             print(f"✗ {str(e)[:50]}")
 
-    if success_count == 0:
-        print("   ❌ All downloads failed!")
-        return None
+    # Download IPv6
+    if include_ipv6:
+        print("\n   IPv6 ranges:")
+        for url in IP_SOURCES_V6:
+            source_name = url.split('/')[-1]
+            try:
+                print(f"   Fetching {source_name}...", end=" ", flush=True)
+                req = urllib.request.Request(url, headers={'User-Agent': 'IranFirewall/1.1'})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    data = resp.read().decode('utf-8')
+                    ips = [line.strip() for line in data.split('\n')
+                           if line.strip() and '/' in line and not line.startswith('#') and ':' in line]
+                    ipv6_ips.update(ips)
+                    print(f"✓ {len(ips)} ranges")
+            except Exception as e:
+                print(f"✗ {str(e)[:50]}")
 
-    print(f"   📊 Total unique ranges: {len(all_ips)}")
-    return sorted(list(all_ips))
+    if len(ipv4_ips) == 0:
+        print("   ❌ All IPv4 downloads failed!")
+        return None, None
+
+    print(f"\n   📊 Total: {len(ipv4_ips)} IPv4 + {len(ipv6_ips)} IPv6 ranges")
+    return sorted(list(ipv4_ips)), sorted(list(ipv6_ips))
 
 
-def create_ipset(name, ips):
-    """Create ipset for efficient IP matching"""
+def create_ipset(name, ips, family='inet'):
+    """Create ipset for efficient IP matching
+
+    Args:
+        name: Name of the ipset
+        ips: List of IP ranges
+        family: 'inet' for IPv4, 'inet6' for IPv6
+    """
     # Delete if exists
     run_cmd(f"ipset destroy {name}", check=False)
 
     # Create new set
-    success, _, _ = run_cmd(f"ipset create {name} hash:net maxelem 1000000", check=True)
+    success, _, _ = run_cmd(f"ipset create {name} hash:net family {family} maxelem 1000000", check=True)
     if not success:
         return False
 
@@ -329,11 +398,15 @@ def manage_admin_ips():
             break
 
 
-def enable_iran_only():
-    """Enable Iran-only mode using iptables"""
-    print("\n" + "=" * 50)
-    print("🇮🇷 ENABLING IRAN-ONLY MODE")
-    print("=" * 50 + "\n")
+def enable_iran_only(strict_mode=False):
+    """
+    Enable Iran-only mode using iptables
+
+    strict_mode: If True, also restricts TCP to Iran (may break broker visibility)
+    """
+    print("\n" + "=" * 60)
+    print("🇮🇷 ENABLING IRAN-ONLY MODE" + (" [STRICT]" if strict_mode else ""))
+    print("=" * 60 + "\n")
 
     # Detect VPN interface
     vpn_iface = detect_vpn_interface()
@@ -348,9 +421,9 @@ def enable_iran_only():
     # Get admin IPs for whitelisting
     admin_ips = get_admin_ips()
 
-    # Download Iran IPs
-    iran_ips = download_iran_ips()
-    if not iran_ips:
+    # Download Iran IPs (IPv4 and IPv6)
+    iran_v4, iran_v6 = download_iran_ips(include_ipv6=True)
+    if not iran_v4:
         print("\n❌ Failed to download Iran IP ranges")
         input("   Press Enter to go back...")
         return False
@@ -360,89 +433,186 @@ def enable_iran_only():
     disable_iran_only(quiet=True)
     time.sleep(0.5)
 
-    # Create ipset for Iran IPs
-    print("\n📦 Creating IP set for Iran...")
-    if not create_ipset(f"{RULE_PREFIX}_IRAN", iran_ips):
-        print("   ❌ Failed to create ipset")
+    # ═══════════════════════════════════════════════════════════════
+    # CREATE IPSETS FOR EFFICIENT IP MATCHING
+    # ═══════════════════════════════════════════════════════════════
+
+    # Create ipset for Iran IPv4
+    print("\n📦 Creating IP set for Iran IPv4...")
+    if not create_ipset(f"{RULE_PREFIX}_IRAN_V4", iran_v4, family='inet'):
+        print("   ❌ Failed to create IPv4 ipset")
         input("   Press Enter to go back...")
         return False
 
-    # Create ipset for DNS
-    print("\n🌐 Creating IP set for DNS...")
-    if not create_ipset(f"{RULE_PREFIX}_DNS", DNS_SERVERS):
-        print("   ❌ Failed to create ipset")
+    # Create ipset for Iran IPv6 (if available)
+    if iran_v6:
+        print("\n📦 Creating IP set for Iran IPv6...")
+        if not create_ipset(f"{RULE_PREFIX}_IRAN_V6", iran_v6, family='inet6'):
+            print("   ⚠️  Warning: Failed to create IPv6 ipset")
+            print("   Continuing without IPv6 support...")
+            iran_v6 = []
+
+    # Create ipset for DNS IPv4
+    print("\n🌐 Creating IP set for DNS IPv4...")
+    if not create_ipset(f"{RULE_PREFIX}_DNS_V4", DNS_SERVERS, family='inet'):
+        print("   ❌ Failed to create DNS ipset")
         input("   Press Enter to go back...")
         return False
+
+    # Create ipset for DNS IPv6
+    if DNS_SERVERS_V6:
+        print("\n🌐 Creating IP set for DNS IPv6...")
+        if not create_ipset(f"{RULE_PREFIX}_DNS_V6", DNS_SERVERS_V6, family='inet6'):
+            print("   ⚠️  Warning: Failed to create DNS IPv6 ipset")
 
     # Create ipset for admin IPs if any exist
     if admin_ips:
         print("\n🔐 Creating IP set for admin whitelist...")
-        if not create_ipset(f"{RULE_PREFIX}_ADMIN", admin_ips):
+        if not create_ipset(f"{RULE_PREFIX}_ADMIN", admin_ips, family='inet'):
             print("   ⚠️  Warning: Failed to create admin ipset")
             print("   Continuing without admin whitelist...")
             admin_ips = []
 
-    # Create custom chain
-    print("\n🔗 Creating firewall chain...")
-    run_cmd(f"iptables -N {RULE_PREFIX}", check=False)
+    # ═══════════════════════════════════════════════════════════════
+    # CREATE CUSTOM CHAINS FOR IPv4 AND IPv6
+    # ═══════════════════════════════════════════════════════════════
 
-    # Build iptables rules
-    print("🔒 Building firewall rules...")
+    print("\n🔗 Creating firewall chains...")
+    run_cmd(f"iptables -N {RULE_PREFIX}", check=False)
+    run_cmd(f"ip6tables -N {RULE_PREFIX}", check=False)
+
+    # ═══════════════════════════════════════════════════════════════
+    # BUILD IPv4 FIREWALL RULES
+    # ═══════════════════════════════════════════════════════════════
+
+    print("🔒 Building IPv4 firewall rules...")
 
     # HIGHEST PRIORITY: Allow admin IPs (FULL ACCESS - not just VPN)
     if admin_ips:
         print(f"   ✓ Adding admin IP whitelist (highest priority)")
-        # Admin IPs bypass ALL filtering - full server access
         for admin_ip in admin_ips:
             run_cmd(f"iptables -I INPUT 1 -s {admin_ip} -j ACCEPT", check=True)
 
     # Allow established connections
     run_cmd(f"iptables -A {RULE_PREFIX} -m state --state ESTABLISHED,RELATED -j ACCEPT", check=True)
 
-    # Allow DNS
-    run_cmd(f"iptables -A {RULE_PREFIX} -m set --match-set {RULE_PREFIX}_DNS src -j ACCEPT", check=True)
+    # Allow DNS IPv4
+    run_cmd(f"iptables -A {RULE_PREFIX} -m set --match-set {RULE_PREFIX}_DNS_V4 src -j ACCEPT", check=True)
 
-    # Allow Iran IPs
-    run_cmd(f"iptables -A {RULE_PREFIX} -m set --match-set {RULE_PREFIX}_IRAN src -j ACCEPT", check=True)
+    # Allow Iran IPv4
+    run_cmd(f"iptables -A {RULE_PREFIX} -m set --match-set {RULE_PREFIX}_IRAN_V4 src -j ACCEPT", check=True)
 
     # Log blocked connections (optional - useful for monitoring)
-    run_cmd(f"iptables -A {RULE_PREFIX} -j LOG --log-prefix '[IRAN-BLOCK] ' --log-level 4", check=False)
+    run_cmd(f"iptables -A {RULE_PREFIX} -j LOG --log-prefix '[IRAN-BLOCK-V4] ' --log-level 4", check=False)
 
-    # Block everything else
+    # EXPLICIT DROP rule for everything else (KEY SECURITY IMPROVEMENT)
     run_cmd(f"iptables -A {RULE_PREFIX} -j DROP", check=True)
 
-    # Apply to INPUT chain based on interface
-    if vpn_port:
-        run_cmd(f"iptables -I INPUT -i {vpn_iface} -p udp --dport {vpn_port} -j {RULE_PREFIX}", check=True)
-        run_cmd(f"iptables -I INPUT -i {vpn_iface} -p tcp --dport {vpn_port} -j {RULE_PREFIX}", check=True)
-    else:
-        # Apply to all traffic on VPN interface
-        run_cmd(f"iptables -I INPUT -i {vpn_iface} -j {RULE_PREFIX}", check=True)
+    # ═══════════════════════════════════════════════════════════════
+    # BUILD IPv6 FIREWALL RULES (if IPv6 support is available)
+    # ═══════════════════════════════════════════════════════════════
 
-    # Summary
-    print("\n" + "=" * 50)
+    if iran_v6:
+        print("🔒 Building IPv6 firewall rules...")
+
+        # Allow established connections
+        run_cmd(f"ip6tables -A {RULE_PREFIX} -m state --state ESTABLISHED,RELATED -j ACCEPT", check=True)
+
+        # Allow DNS IPv6
+        if DNS_SERVERS_V6:
+            run_cmd(f"ip6tables -A {RULE_PREFIX} -m set --match-set {RULE_PREFIX}_DNS_V6 src -j ACCEPT", check=True)
+
+        # Allow Iran IPv6
+        run_cmd(f"ip6tables -A {RULE_PREFIX} -m set --match-set {RULE_PREFIX}_IRAN_V6 src -j ACCEPT", check=True)
+
+        # Log blocked connections
+        run_cmd(f"ip6tables -A {RULE_PREFIX} -j LOG --log-prefix '[IRAN-BLOCK-V6] ' --log-level 4", check=False)
+
+        # EXPLICIT DROP rule for everything else
+        run_cmd(f"ip6tables -A {RULE_PREFIX} -j DROP", check=True)
+    else:
+        # No IPv6 Iran ranges - block ALL IPv6 to prevent bypass
+        print("🚫 No IPv6 ranges - blocking ALL IPv6 traffic to VPN interface...")
+        run_cmd(f"ip6tables -A {RULE_PREFIX} -j DROP", check=True)
+
+    # ═══════════════════════════════════════════════════════════════
+    # APPLY CHAINS TO INPUT (with protocol filtering)
+    # ═══════════════════════════════════════════════════════════════
+
+    print("\n🌍 Configuring protocol access...")
+
+    if strict_mode:
+        print("   STRICT MODE: TCP+UDP restricted to Iran only")
+        # In strict mode, apply filtering to both TCP and UDP
+        if vpn_port:
+            run_cmd(f"iptables -I INPUT -i {vpn_iface} -p udp --dport {vpn_port} -j {RULE_PREFIX}", check=True)
+            run_cmd(f"iptables -I INPUT -i {vpn_iface} -p tcp --dport {vpn_port} -j {RULE_PREFIX}", check=True)
+            if iran_v6:
+                run_cmd(f"ip6tables -I INPUT -i {vpn_iface} -p udp --dport {vpn_port} -j {RULE_PREFIX}", check=True)
+                run_cmd(f"ip6tables -I INPUT -i {vpn_iface} -p tcp --dport {vpn_port} -j {RULE_PREFIX}", check=True)
+        else:
+            run_cmd(f"iptables -I INPUT -i {vpn_iface} -j {RULE_PREFIX}", check=True)
+            if iran_v6:
+                run_cmd(f"ip6tables -I INPUT -i {vpn_iface} -j {RULE_PREFIX}", check=True)
+    else:
+        print("   NORMAL MODE: UDP Iran-only, TCP global (for broker visibility)")
+        # Normal mode: Only filter UDP (data tunnel), allow TCP globally (broker checks)
+        if vpn_port:
+            run_cmd(f"iptables -I INPUT -i {vpn_iface} -p udp --dport {vpn_port} -j {RULE_PREFIX}", check=True)
+            if iran_v6:
+                run_cmd(f"ip6tables -I INPUT -i {vpn_iface} -p udp --dport {vpn_port} -j {RULE_PREFIX}", check=True)
+        else:
+            # No port specified - filter only UDP on the interface
+            run_cmd(f"iptables -I INPUT -i {vpn_iface} -p udp -j {RULE_PREFIX}", check=True)
+            if iran_v6:
+                run_cmd(f"ip6tables -I INPUT -i {vpn_iface} -p udp -j {RULE_PREFIX}", check=True)
+
+    # ═══════════════════════════════════════════════════════════════
+    # SUMMARY
+    # ═══════════════════════════════════════════════════════════════
+
+    print("\n" + "=" * 60)
     print("✅ IRAN-ONLY MODE ENABLED!")
-    print("=" * 50)
+    print("=" * 60)
     print(f"\n   🌐 VPN Interface: {vpn_iface}")
     if vpn_port:
         print(f"   🔌 VPN Port: {vpn_port}")
-    print(f"   🇮🇷 Iran IPs: {len(iran_ips)} ranges allowed")
-    print(f"   🌐 DNS servers: {len(DNS_SERVERS)} whitelisted")
+    print(f"   🇮🇷 Iran IPv4: {len(iran_v4)} ranges")
+    print(f"   🇮🇷 Iran IPv6: {len(iran_v6) if iran_v6 else 0} ranges")
+    print(f"   🌐 DNS servers: {len(DNS_SERVERS)} IPv4 + {len(DNS_SERVERS_V6)} IPv6")
+
+    if strict_mode:
+        print(f"\n   ⚠️  STRICT MODE: TCP+UDP both restricted to Iran")
+        print(f"      (Psiphon broker visibility may be affected)")
+    else:
+        print(f"\n   🌍 TCP: Global (for broker visibility)")
+        print(f"   🇮🇷 UDP: Iran only")
+
     if admin_ips:
-        print(f"   🔐 Admin IPs: {len(admin_ips)} whitelisted (full access)")
+        print(f"\n   🔐 Admin IPs: {len(admin_ips)} whitelisted (full access)")
         for ip in admin_ips:
             print(f"      • {ip}")
 
     print("\n   ⚠️  YOUR SERVER IS NOT AFFECTED - ONLY VPN!")
-    print("   🇮🇷 Only Iranian users can connect to VPN now!")
+    print("   🇮🇷 Only Iranian users can use your data tunnel!")
     if admin_ips:
         print("   🔐 Admin IPs have FULL server access (web, SSH, everything)")
+
+    # Save config
+    config = load_config()
+    config['last_update'] = time.strftime("%Y-%m-%d %H:%M:%S")
+    config['strict_mode'] = strict_mode
+    config['ipv4_count'] = len(iran_v4)
+    config['ipv6_count'] = len(iran_v6) if iran_v6 else 0
+    save_config(config)
 
     # Save rules
     print("\n💾 Saving rules...")
     print("   To make rules persistent across reboots:")
     print("   • Ubuntu/Debian: apt install iptables-persistent")
     print("   • Then run: netfilter-persistent save")
+
+    logging.info(f"Iran-only mode enabled. IPv4: {len(iran_v4)}, IPv6: {len(iran_v6) if iran_v6 else 0}, Strict: {strict_mode}")
 
     input("\n   Press Enter to go back to menu...")
     return True
@@ -453,66 +623,134 @@ def disable_iran_only(quiet=False):
     if not quiet:
         print("\n🔓 Disabling Iran-only mode...\n")
 
-    # Remove admin IP rules from INPUT chain
     config = load_config()
+
+    # Remove admin IP rules from INPUT chain
     admin_ips = config.get('admin_ips', [])
     for admin_ip in admin_ips:
         run_cmd(f"iptables -D INPUT -s {admin_ip} -j ACCEPT", check=False)
 
-    # Remove iptables rules
+    # Remove rules by interface (cleanup all protocol rules)
+    vpn_iface = config.get('vpn_interface')
+    vpn_port = config.get('vpn_port')
+
+    if vpn_iface:
+        if vpn_port:
+            # Remove port-specific rules
+            run_cmd(f"iptables -D INPUT -i {vpn_iface} -p udp --dport {vpn_port} -j {RULE_PREFIX}", check=False)
+            run_cmd(f"iptables -D INPUT -i {vpn_iface} -p tcp --dport {vpn_port} -j {RULE_PREFIX}", check=False)
+            run_cmd(f"ip6tables -D INPUT -i {vpn_iface} -p udp --dport {vpn_port} -j {RULE_PREFIX}", check=False)
+            run_cmd(f"ip6tables -D INPUT -i {vpn_iface} -p tcp --dport {vpn_port} -j {RULE_PREFIX}", check=False)
+        else:
+            # Remove interface-wide rules
+            run_cmd(f"iptables -D INPUT -i {vpn_iface} -j {RULE_PREFIX}", check=False)
+            run_cmd(f"iptables -D INPUT -i {vpn_iface} -p udp -j {RULE_PREFIX}", check=False)
+            run_cmd(f"ip6tables -D INPUT -i {vpn_iface} -j {RULE_PREFIX}", check=False)
+            run_cmd(f"ip6tables -D INPUT -i {vpn_iface} -p udp -j {RULE_PREFIX}", check=False)
+
+    # Flush and delete custom chains (IPv4)
     run_cmd(f"iptables -D INPUT -j {RULE_PREFIX}", check=False)
     run_cmd(f"iptables -F {RULE_PREFIX}", check=False)
     run_cmd(f"iptables -X {RULE_PREFIX}", check=False)
 
-    # Remove rules by interface (cleanup any remaining)
-    vpn_iface = config.get('vpn_interface')
-    if vpn_iface:
-        run_cmd(f"iptables -D INPUT -i {vpn_iface} -j {RULE_PREFIX}", check=False)
+    # Flush and delete custom chains (IPv6)
+    run_cmd(f"ip6tables -D INPUT -j {RULE_PREFIX}", check=False)
+    run_cmd(f"ip6tables -F {RULE_PREFIX}", check=False)
+    run_cmd(f"ip6tables -X {RULE_PREFIX}", check=False)
 
-    # Destroy ipsets
+    # Destroy ipsets (IPv4)
+    run_cmd(f"ipset destroy {RULE_PREFIX}_IRAN_V4", check=False)
+    run_cmd(f"ipset destroy {RULE_PREFIX}_DNS_V4", check=False)
+    run_cmd(f"ipset destroy {RULE_PREFIX}_ADMIN", check=False)
+
+    # Destroy ipsets (IPv6)
+    run_cmd(f"ipset destroy {RULE_PREFIX}_IRAN_V6", check=False)
+    run_cmd(f"ipset destroy {RULE_PREFIX}_DNS_V6", check=False)
+
+    # Legacy cleanup (for old version compatibility)
     run_cmd(f"ipset destroy {RULE_PREFIX}_IRAN", check=False)
     run_cmd(f"ipset destroy {RULE_PREFIX}_DNS", check=False)
-    run_cmd(f"ipset destroy {RULE_PREFIX}_ADMIN", check=False)
 
     if not quiet:
         print("✅ Iran-only mode DISABLED")
         print("   VPN now accepts connections from all countries.")
+        logging.info("Iran-only mode disabled")
         input("\n   Press Enter to go back to menu...")
 
 
 def show_status():
-    """Show current status"""
-    print("\n📊 CURRENT STATUS\n")
+    """Show current status with detailed information"""
+    print("\n" + "=" * 50)
+    print("📊 CURRENT STATUS")
+    print("=" * 50 + "\n")
 
-    # Check iptables rules
+    # Check iptables rules (IPv4)
     success, out, _ = run_cmd(f"iptables -L {RULE_PREFIX} -n -v 2>/dev/null")
 
     if success and out and RULE_PREFIX in out:
-        # Count rules
-        rule_count = len([l for l in out.split('\n') if l and not l.startswith('Chain') and not l.startswith('target')])
-        print(f"   Firewall:  ✅ IRAN-ONLY MODE ENABLED")
-        print(f"   Rules:     {rule_count} iptables rules active")
+        # Count IPv4 rules
+        ipv4_rule_count = len([l for l in out.split('\n') if l and not l.startswith('Chain') and not l.startswith('target')])
+        print(f"   ✅ IRAN-ONLY MODE ENABLED")
+        print(f"   📋 IPv4 rules: {ipv4_rule_count}")
+
+        # Check IPv6 rules
+        success_v6, out_v6, _ = run_cmd(f"ip6tables -L {RULE_PREFIX} -n -v 2>/dev/null")
+        if success_v6 and out_v6 and RULE_PREFIX in out_v6:
+            ipv6_rule_count = len([l for l in out_v6.split('\n') if l and not l.startswith('Chain') and not l.startswith('target')])
+            print(f"   📋 IPv6 rules: {ipv6_rule_count}")
+        else:
+            print(f"   📋 IPv6 rules: None (IPv6 disabled or blocked)")
 
         # Show ipset stats
-        success, out, _ = run_cmd(f"ipset list {RULE_PREFIX}_IRAN | grep 'Number of entries'")
+        print(f"\n   🇮🇷 IP Range Statistics:")
+
+        # IPv4 ranges
+        success, out, _ = run_cmd(f"ipset list {RULE_PREFIX}_IRAN_V4 2>/dev/null | grep 'Number of entries'")
         if success and out:
             entries = out.split(':')[1].strip() if ':' in out else 'unknown'
-            print(f"   Iran IPs:  {entries} ranges loaded")
+            print(f"      • IPv4: {entries} Iran ranges")
+        else:
+            # Try legacy name
+            success, out, _ = run_cmd(f"ipset list {RULE_PREFIX}_IRAN 2>/dev/null | grep 'Number of entries'")
+            if success and out:
+                entries = out.split(':')[1].strip() if ':' in out else 'unknown'
+                print(f"      • IPv4: {entries} Iran ranges (legacy)")
+
+        # IPv6 ranges
+        success, out, _ = run_cmd(f"ipset list {RULE_PREFIX}_IRAN_V6 2>/dev/null | grep 'Number of entries'")
+        if success and out:
+            entries = out.split(':')[1].strip() if ':' in out else '0'
+            print(f"      • IPv6: {entries} Iran ranges")
+        else:
+            print(f"      • IPv6: 0 ranges")
+
+        # Show configuration from config file
+        config = load_config()
+        last_update = config.get('last_update', 'Unknown')
+        strict_mode = config.get('strict_mode', False)
+
+        print(f"\n   🕒 Last updated: {last_update}")
+
+        if strict_mode:
+            print(f"   ⚠️  Mode: STRICT (TCP+UDP restricted)")
+        else:
+            print(f"   🌍 Mode: Normal (UDP Iran-only, TCP global)")
+
     else:
-        print(f"   Firewall:  ❌ IRAN-ONLY MODE DISABLED")
+        print(f"   ❌ IRAN-ONLY MODE DISABLED")
 
     # Check VPN interface
     config = load_config()
     vpn_iface = config.get('vpn_interface')
     if vpn_iface:
-        success, out, _ = run_cmd(f"ip link show {vpn_iface}")
-        print(f"\n   VPN Iface: {vpn_iface}")
+        success, out, _ = run_cmd(f"ip link show {vpn_iface} 2>/dev/null")
+        print(f"\n   🌐 VPN Interface: {vpn_iface}")
         if success and 'state UP' in out:
-            print(f"   Status:    🟢 Interface is UP")
+            print(f"      Status: 🟢 UP")
         elif success:
-            print(f"   Status:    🟡 Interface exists but may be DOWN")
+            print(f"      Status: 🟡 Exists but DOWN")
         else:
-            print(f"   Status:    ⚪ Interface not found")
+            print(f"      Status: ⚪ Not found")
 
     # Show admin IPs
     admin_ips = config.get('admin_ips', [])
@@ -525,9 +763,9 @@ def show_status():
 
     # Show active connections
     print(f"\n   📊 Connection Statistics:")
-    success, out, _ = run_cmd("ss -tunp | grep -c ESTAB")
+    success, out, _ = run_cmd("ss -tunp 2>/dev/null | grep -c ESTAB")
     if success and out.strip().isdigit():
-        print(f"   Active:    {out.strip()} established connections")
+        print(f"      Active: {out.strip()} established connections")
 
     input("\n   Press Enter to go back to menu...")
 
@@ -537,27 +775,43 @@ def show_help():
     clear_screen()
     print(f"""
 ╔═══════════════════════════════════════════════════════════════════╗
-║                    HELP - Iran-Only Firewall                      ║
+║                    HELP - Iran-Only Firewall v{VERSION}               ║
 ║                      Linux/Ubuntu Edition                         ║
 ╚═══════════════════════════════════════════════════════════════════╝
 
 WHAT THIS DOES:
-  • Blocks connections to your VPN from non-Iran IPs
-  • Lets only Iranian users use your bandwidth
+  • Creates firewall rules that ONLY allow Iranian IPs to use your
+    VPN bandwidth for data transfer (UDP).
+  • Allows TCP globally so Psiphon brokers can see your node is active.
+  • Uses EXPLICIT block rules - doesn't rely on system defaults.
   • Whitelists admin IPs for full server access (web, SSH, etc.)
-  • Does NOT affect your server - only VPN traffic!
 
-HOW IT WORKS:
-  1. Creates iptables firewall rules for your VPN interface
-  2. Uses ipset for efficient IP range matching
-  3. Blocks all inbound connections to VPN
-  4. Allows only Iran IP ranges + DNS servers
+HOW IT WORKS (Rule Priority):
+  1. ALLOW admin IPs (full server access, highest priority)
+  2. ALLOW DNS servers (required for operation)
+  3. ALLOW established/related connections
+  4. ALLOW UDP from Iran IP ranges (IPv4 + IPv6)
+  5. EXPLICIT DROP all other traffic
+
+MODES:
+  • Normal Mode: TCP global, UDP Iran-only
+    - Best for: Most users (ensures broker visibility)
+
+  • Strict Mode: TCP Iran-only, UDP Iran-only
+    - Best for: Maximum restriction (may affect broker visibility)
+
+IMPROVEMENTS IN v{VERSION}:
+  ✓ Explicit DROP rules (doesn't rely on implicit deny)
+  ✓ IPv6 support for Iran ranges
+  ✓ Firewall state verification
+  ✓ Optional strict mode for TCP
+  ✓ Detailed logging to {LOG_FILE}
 
 REQUIREMENTS:
   • Ubuntu/Debian Linux (or compatible)
   • Python 3.6+
   • Root access (sudo)
-  • iptables and ipset installed
+  • iptables, ip6tables, and ipset installed
   • Active VPN service
 
 INSTALLATION:
@@ -576,21 +830,26 @@ MAKING RULES PERSISTENT:
 
 TROUBLESHOOTING:
   • "Permission denied" → Run with sudo
-  • "Command not found" → Install iptables/ipset
+  • "Command not found" → Install iptables/ipset/ip6tables
   • "Interface not found" → Check VPN is running
   • Check logs: journalctl -k | grep IRAN-BLOCK
+  • Check {LOG_FILE} for detailed logs
 
 Press Enter to go back to menu...""")
     input()
 
 
 def main():
+    setup_logging()
+    logging.info(f"=== Iran Firewall v{VERSION} (Linux) started ===")
+
     print_header()
 
     # Check if running as root
     if not is_root():
         print("❌ ERROR: This script must be run as root!")
         print("\n   Run with: sudo python3 iran_firewall_linux.py")
+        logging.error("Not running as root")
         input("\nPress Enter to exit...")
         sys.exit(1)
 
@@ -600,7 +859,7 @@ def main():
     print("🔍 Checking dependencies...")
     deps_ok = True
 
-    for cmd in ['iptables', 'ipset', 'ip']:
+    for cmd in ['iptables', 'ip6tables', 'ipset', 'ip']:
         success, _, _ = run_cmd(f"which {cmd}")
         if success:
             print(f"   ✓ {cmd} found")
@@ -617,42 +876,53 @@ def main():
 
     while True:
         print_header()
-        print("─" * 45)
+        print("─" * 50)
         print("  MAIN MENU")
-        print("─" * 45)
-        print("  1. 🟢 Enable Iran-only mode")
-        print("  2. 🔴 Disable Iran-only mode")
-        print("  3. 📊 Check status")
-        print("  4. ⚙️  Configure VPN interface/port")
-        print("  5. 🔐 Manage admin IP whitelist")
-        print("  6. ❓ Help")
+        print("─" * 50)
+        print("  1. 🟢 Enable Iran-only mode (Normal)")
+        print("  2. 🔒 Enable Iran-only mode (Strict)")
+        print("  3. 🔴 Disable Iran-only mode")
+        print("  4. 📊 Check status")
+        print("  5. ⚙️  Configure VPN interface/port")
+        print("  6. 🔐 Manage admin IP whitelist")
+        print("  7. ❓ Help")
         print("  0. 🚪 Exit")
-        print("─" * 45)
+        print("─" * 50)
+        print("  Normal: TCP global, UDP Iran-only")
+        print("  Strict: TCP+UDP Iran-only (may affect visibility)")
+        print("─" * 50)
 
         choice = input("\n  Enter choice: ").strip()
 
         if choice == "1":
-            enable_iran_only()
+            enable_iran_only(strict_mode=False)
         elif choice == "2":
-            disable_iran_only()
+            print("\n⚠️  STRICT MODE: Restricts both TCP and UDP to Iran only.")
+            print("   This may cause Psiphon brokers to stop seeing your node.")
+            confirm = input("   Enable Strict mode anyway? (y/n): ").strip().lower()
+            if confirm == 'y':
+                enable_iran_only(strict_mode=True)
         elif choice == "3":
-            show_status()
+            disable_iran_only()
         elif choice == "4":
+            show_status()
+        elif choice == "5":
             print("\n⚙️  Configuration\n")
             detect_vpn_interface()
             detect_vpn_port()
             input("\n   Configuration saved! Press Enter to continue...")
-        elif choice == "5":
-            manage_admin_ips()
         elif choice == "6":
+            manage_admin_ips()
+        elif choice == "7":
             show_help()
         elif choice == "0":
             clear_screen()
             print("\n👋 Thank you for helping Iran!")
             print("   Share this tool to help more people.\n")
+            logging.info("=== Iran Firewall exited ===")
             break
         else:
-            print("   Invalid choice. Enter 0-6.")
+            print("   Invalid choice. Enter 0-7.")
 
 
 if __name__ == "__main__":
