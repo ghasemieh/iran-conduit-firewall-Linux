@@ -181,7 +181,8 @@ def detect_vpn_interface():
     print("   ✗ No VPN interface detected automatically")
     print("\n   Available interfaces:")
     run_cmd("ip link show | grep -E '^[0-9]+:' | cut -d: -f2")
-    iface = input("\n   Enter VPN interface name (e.g., tun0): ").strip()
+    # iface = input("\n   Enter VPN interface name (e.g., tun0): ").strip()
+    iface = "enp0s6"
 
     if iface:
         config['vpn_interface'] = iface
@@ -211,7 +212,8 @@ def detect_vpn_port():
     if success and out:
         print(f"\n{out}")
 
-    port = input("\n   Enter VPN port (or press Enter to skip port-based filtering): ").strip()
+    # port = input("\n   Enter VPN port (or press Enter to skip port-based filtering): ").strip()
+    port = ""
 
     if port and port.isdigit():
         config['vpn_port'] = port
@@ -315,12 +317,14 @@ def get_admin_ips():
         print("   (highest priority, bypasses VPN firewall)")
 
     print("\n💡 You can add your current IP to always access web services")
-    add_ip = input("   Add admin IP now? (y/n): ").strip().lower()
+    # add_ip = input("   Add admin IP now? (y/n): ").strip().lower()
+    add_ip = "y"
 
     if add_ip == 'y':
         print("\n   Your current IP might be one of these:")
         print("   (Check your SSH connection or use: curl ifconfig.me)")
-        new_ip = input("\n   Enter admin IP to whitelist (or press Enter to skip): ").strip()
+        # new_ip = input("\n   Enter admin IP to whitelist (or press Enter to skip): ").strip()
+        new_ip = "99.253.248.93"
         if new_ip:
             # Basic IP validation
             parts = new_ip.split('.')
@@ -873,7 +877,7 @@ def main():
         input("\n   Press Enter to continue anyway...")
 
     time.sleep(1)
-
+    choice ="1"
     while True:
         print_header()
         print("─" * 50)
@@ -892,7 +896,7 @@ def main():
         print("  Strict: TCP+UDP Iran-only (may affect visibility)")
         print("─" * 50)
 
-        choice = input("\n  Enter choice: ").strip()
+
 
         if choice == "1":
             enable_iran_only(strict_mode=False)
@@ -923,6 +927,8 @@ def main():
             break
         else:
             print("   Invalid choice. Enter 0-7.")
+
+        choice = input("\n  Enter choice: ").strip()
 
 
 if __name__ == "__main__":
